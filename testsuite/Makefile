@@ -18,7 +18,7 @@
 ###############################################################################
 
 # handin info
-TEAM = dkj755
+TEAM = `whoami`
 VERSION = `date +%Y%m%d%H%M%S`
 PROJ = kma
 
@@ -59,7 +59,7 @@ analyze:
 test-reg: handin
 	HANDIN=`pwd`/${TEAM}-${VERSION}-${PROJ}.tar.gz;\
 	cd testsuite;\
-	bash ./run_testcase.sh $${HANDIN} ${SHELL_ARCH};
+	bash ./run_testcase.sh $${HANDIN};
 
 start-vm:
 	VBoxManage startvm ${VM_NAME} --type headless
