@@ -64,6 +64,7 @@
 #endif
 
 typedef int kma_size_t;
+// typedef struct resourceEntry;
 
 /************Global Variables*********************************************/
 

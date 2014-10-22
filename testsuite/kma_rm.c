@@ -49,15 +49,15 @@
  *  structures and arrays, line everything up in neat columns.
  */
 
-struct resourceHead {
+typedef struct resourceHead {
 	int base;
 	int size;
-	struct resourceEntry * next;
+	struct resourceHead * next;
 	bool free;
 } resourceEntry;
 
 /************Global Variables*********************************************/
-resourceEntry* g_resource_map = NULL;
+static resourceEntry* g_resource_map = NULL;
 
 
 /************Function Prototypes******************************************/
@@ -78,9 +78,9 @@ resourceEntry * makeBKPage(size_t malloc_size)
 		free(page);
 		return NULL;
 	}
-	resourceEntry * bkpg = page + sizeof(kma_page_t *);
-	bkpg->base = page;
-	bkpg->free = FALSE
+	resourceEntry * bkpg = (resourceEntry*)(page + sizeof(kma_page_t *));
+	bkpg->base = (int)page;
+	bkpg->free = FALSE;
 	// account for size of page ptr struct and resourceEntry
 	bkpg->size = page->size - sizeof(kma_page_t*) - sizeof(resourceEntry*); 
 	return bkpg;
@@ -90,7 +90,7 @@ resourceEntry* makeDataPage(resourceEntry* bkpg, size_t malloc_size){
 	resourceEntry* datapg = createResourceEntry(bkpg);
 	bkpg->size -= sizeof(resourceEntry*);
 	kma_page_t * dpage = get_page();
-	datapg->base = dpage;
+	datapg->base = (int)dpage;
 	datapg->size = dpage->size;
 	datapg->free=TRUE;
 	bkpg->next = datapg;
@@ -101,7 +101,7 @@ resourceEntry* makeDataPage(resourceEntry* bkpg, size_t malloc_size){
 resourceEntry* makeFreeEntry(resourceEntry* bkpg, resourceEntry* datapg, size_t malloc_size){
 	resourceEntry* freeEntry = createResourceEntry(bkpg);
 	datapg->next = freeEntry;
-	datapg->free = false;
+	datapg->free = FALSE;
 	freeEntry->base = datapg->base+malloc_size;
 	freeEntry->size = datapg->size-malloc_size-sizeof(kma_page_t*);
 	freeEntry->free = TRUE;
@@ -116,21 +116,21 @@ resourceEntry* createResourceEntry(resourceEntry * bkpg)
 	//bkpg is the book keeping entryResource
 	//its size represents how much space is left in the book keeping page
 	resourceEntry* me = bkpg;
-	resourceEntry* result = me->base;
+	resourceEntry* result = (resourceEntry*)me->base;
 	while (me != NULL){
-		result = me->base;
+		result = (resourceEntry*)me->base;
 		me = me->next;
 	}
 	return result + sizeof(resourceEntry);
 }
 
-void * kma_malloc(size_t malloc_size){
+void* kma_malloc(kma_size_t malloc_size){
 	if (g_resource_map == NULL)
 	{
 		resourceEntry* bkpg = makeBKPage(malloc_size);
 		resourceEntry* datapg = makeDataPage(bkpg,malloc_size);
-		resource_map = bkpg;
-		return datapg->base+sizeof(kma_page_t*);
+		g_resource_map = bkpg;
+		return (void*)((int)datapg->base+(int)sizeof(kma_page_t*));
 	}
 
 	//search for matching(free==TRUE && malloc_size <= entry->size) resourceEntry
@@ -149,11 +149,11 @@ void * kma_malloc(size_t malloc_size){
 	//no hole big enough
 	if(entry==NULL)
 	{
-	bool coalesced = FALSE;
+		bool coalesced = FALSE;
 		//attempt to merge holes, if any were merged, coalesced==TRUE
-		while(coalesce(resource_map)){
-			coalesced = TRUE;
-		}
+// 		while(coalesce(g_resource_map)){
+// 			coalesced = TRUE;
+// 		}
 		if (coalesced){
 			return kma_malloc(malloc_size);
 		}
@@ -165,13 +165,14 @@ void * kma_malloc(size_t malloc_size){
 			if(bkHead->size >= (2*sizeof(resourceEntry))){
 				//make our new resource entry and allocate to the new datapage
 				resourceEntry * datapage = makeDataPage(bkHead,malloc_size);
-				return datapage->base+sizeof(kma_page_t*);
+				return (void*)((int)datapage->base+sizeof(kma_page_t*));
 			}
-			else //we need to make a new book keeping page{
+			else //we need to make a new book keeping page
+			{
 				//make a new resourceEntry to manage this page
 				resourceEntry* bkpage = makeBKPage(malloc_size);
 				resourceEntry * datapage = makeDataPage(bkpage,malloc_size);
-				return datapage->base+sizeof(kma_page_t*);
+				return (void*)((int)datapage->base+(int)sizeof(kma_page_t*));
 			}
 		}
 	}
@@ -182,13 +183,13 @@ void * kma_malloc(size_t malloc_size){
 		if(bkHead->size >= sizeof(resourceEntry)){
 			//make our new resource entry and allocate to the new datapage
 			makeFreeEntry(bkHead, entry, malloc_size);
-			return entry->base+sizeof(kma_page_t*);
+			return (void*)((int)entry->base+sizeof(kma_page_t*));
 		}
 		//bkpage full, need new bkpage
 		else{
 			resourceEntry* bkpage = makeBKPage(malloc_size);
 			makeFreeEntry(bkpage,entry,malloc_size);
-			return entry->base+sizeof(kma_page_t*);
+			return (void*)((int)entry->base+sizeof(kma_page_t*));
 		}
 	}
 }
