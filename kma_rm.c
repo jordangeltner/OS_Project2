@@ -228,7 +228,20 @@ static bool coalesce(resourceEntry* r_map){
 void
 kma_free(void* ptr, kma_size_t size)
 {
-  ;
+	if (g_resource_map == NULL){
+		return;
+	}
+	resourceEntry* entry = g_resource_map;
+	while(entry!=NULL){
+		//found the matching entry?
+		if((int)(ptr-sizeof(kma_page_t*))==entry->base && size==entry->size){
+			entry->free = TRUE;
+			//Clear the block??
+			break;
+		}
+		entry = entry->next;
+	}
+	return;
 }
 
 #endif // KMA_RM
