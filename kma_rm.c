@@ -50,8 +50,6 @@
  *  structures and arrays, line everything up in neat columns.
  */
 
-#define KMA_ADD(x) ((int)x+sizeof(kma_page_t*)+sizeof(kma_page_t))
-#define KMA_SUB(x) ((int)x-sizeof(kma_page_t*)-sizeof(kma_page_t))
 typedef struct resourceHead {
 	int base;
 	int size;
@@ -63,7 +61,7 @@ resourceEntry* g_resource_map = NULL;
 
 
 /************Function Prototypes******************************************/
-static bool coalesce(resourceEntry*);
+static bool coalesce();
 
 /************External Declaration*****************************************/
 
@@ -71,18 +69,18 @@ static bool coalesce(resourceEntry*);
 
 
 void* kma_malloc(kma_size_t malloc_size){
-	//printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);
+	printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);
 	if (g_resource_map == NULL)
 	{
 		// if the request is larger than the size of a page we can't allocate it
 		if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 		kma_page_t* first = get_page();
-		g_resource_map = (resourceEntry*)(first + sizeof(kma_page_t*) + malloc_size);
+		g_resource_map = (resourceEntry*)((int)first + sizeof(kma_page_t*) + malloc_size);
 		g_resource_map->size = PAGESIZE - sizeof(kma_page_t*) - malloc_size;
-		g_resource_map->base = first + malloc_size + sizeof(kma_page_t*);
+		g_resource_map->base = (int)first + malloc_size + sizeof(kma_page_t*);
 		g_resource_map->next = NULL;
 	
-		return (void*)(first + sizeof(kma_page_t*));
+		return (void*)((int)first + sizeof(kma_page_t*));
 	}
 	resourceEntry* entry = g_resource_map;
 	resourceEntry* prev = NULL;
@@ -99,7 +97,7 @@ void* kma_malloc(kma_size_t malloc_size){
 	{
 		bool coalesced = FALSE;
 		//attempt to merge holes, if any were merged, coalesced==TRUE
-		while(coalesce(g_resource_map)){
+		while(coalesce()){
 			coalesced = TRUE;
 		}
 		if (coalesced){
@@ -110,21 +108,15 @@ void* kma_malloc(kma_size_t malloc_size){
 			// if the request is larger than the size of a page we can't allocate it
 			if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 			kma_page_t* newpage = get_page();
-			resourceEntry* newentry = (resourceEntry*)(newpage + sizeof(kma_page_t*) + malloc_size);
+			resourceEntry* newentry = (resourceEntry*)((int)newpage + sizeof(kma_page_t*) + malloc_size);
 			newentry->size = PAGESIZE - sizeof(kma_page_t*) - malloc_size;
-			newentry->base = newpage + malloc_size + sizeof(kma_page_t*);
+			newentry->base = (int)newpage + malloc_size + sizeof(kma_page_t*);
 			newentry->next = NULL;
 			//if there is not enough remaining free space to even store an entry, 
 			//you need to delete this entry and link up the free list appropriately
 			if(newentry->size<sizeof(resourceEntry)){
-				//nothing before it on the list to link up
-				if(prev==NULL){
-					g_resource_map = newentry->next;
-				}
 				//link up previous entry to next entry
-				else{
-					prev->next = newentry->next;
-				}
+				prev->next = newentry->next;
 			}
 			//link up list correctly
 			else if(prev!=NULL){
@@ -134,7 +126,7 @@ void* kma_malloc(kma_size_t malloc_size){
 			else{
 				g_resource_map = NULL;
 			}
-			return (void*)(newpage + sizeof(kma_page_t*));
+			return (void*)((int)newpage + sizeof(kma_page_t*));
 		}
 	}
 	else // updating entry to reflect the remaining free space on the page
@@ -160,10 +152,9 @@ void* kma_malloc(kma_size_t malloc_size){
 }
 
 //coalesce forward, adjacent resourceEntries to items on the same physical page
-static bool coalesce(resourceEntry* r_map){
+static bool coalesce(){
 	bool result = FALSE;
-	resourceEntry* current = r_map;
-	//resourceEntry* prev = NULL;
+	resourceEntry* current = g_resource_map;
 	while (current!=NULL && current->next!=NULL){
 		//is this block directly adjacent to the next block? and on the same page?
 		if((current->base+current->size)==current->next->base && BASEADDR(current)==BASEADDR(current->next)){
@@ -180,6 +171,7 @@ static bool coalesce(resourceEntry* r_map){
 void
 kma_free(void* ptr, kma_size_t size)
 {
+	printf("Free: ptr:%d  size:%d   line:%d\n",(int)ptr,(int)size,__LINE__); fflush(stdout);
 	resourceEntry* newentry = ptr;
 	newentry->base = (int)ptr;
 	newentry->size = size;
