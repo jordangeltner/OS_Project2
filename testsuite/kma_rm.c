@@ -65,6 +65,7 @@ resourceEntry* makeBKPage(size_t);
 resourceEntry* makeDataPage(resourceEntry*, size_t);
 resourceEntry* makeFreeEntry(resourceEntry*,resourceEntry*,size_t);
 resourceEntry* createResourceEntry(resourceEntry*);
+static bool coalesce(resourceEntry*);
 
 /************External Declaration*****************************************/
 
@@ -151,9 +152,9 @@ void* kma_malloc(kma_size_t malloc_size){
 	{
 		bool coalesced = FALSE;
 		//attempt to merge holes, if any were merged, coalesced==TRUE
-// 		while(coalesce(g_resource_map)){
-// 			coalesced = TRUE;
-// 		}
+		while(coalesce(g_resource_map)){
+			coalesced = TRUE;
+		}
 		if (coalesced){
 			return kma_malloc(malloc_size);
 		}
@@ -193,10 +194,54 @@ void* kma_malloc(kma_size_t malloc_size){
 		}
 	}
 }
+
+//coalesce forward, adjacent resourceEntries to items on the same physical page
+static bool coalesce(resourceEntry* r_map){
+	bool result = FALSE;
+	resourceEntry* current = r_map;
+	//resourceEntry* prev = NULL;
+	while (current!=NULL){
+		//is this block free?
+		if(current->free==TRUE){
+		//is it a bookkeeping head?
+		//no?
+			if(!((current->base-sizeof(kma_page_t *))==(int)BASEADDR(current->base))){
+				//is the next entry on the same page, not null, adjacent, and free=TRUE
+				if(current->next!=NULL && current->next->free==TRUE && 
+					BASEADDR(current->base)==BASEADDR(current->next->base) &&
+					(current->base+current->size)==current->next->base){
+					current->size += current->next->size;
+					current->next = current->next->next;
+					//free up resourceEntry that was deleted? How?
+					//currently we are just telling the bookkeeping head that it has that space back
+					((resourceEntry*)(BASEADDR(current->base)+sizeof(kma_page_t*)))->size-=sizeof(resourceEntry);
+					result = TRUE;
+				}
+			}
+		}
+		current = current->next;
+	}
+	return result;
+}
+
+
 void
 kma_free(void* ptr, kma_size_t size)
 {
-  ;
+	if (g_resource_map == NULL){
+		return;
+	}
+	resourceEntry* entry = g_resource_map;
+	while(entry!=NULL){
+		//found the matching entry?
+		if((int)(ptr-sizeof(kma_page_t*))==entry->base && size==entry->size){
+			entry->free = TRUE;
+			//Clear the block??
+			break;
+		}
+		entry = entry->next;
+	}
+	return;
 }
 
 #endif // KMA_RM
