@@ -147,13 +147,20 @@ void* kma_malloc(kma_size_t malloc_size){
 		printResources("Start of hole-filling");
 		printf("Found a hole: (size: %d, base: %d)\n", entry->size, entry->base);
 		void* ptr = (void*)entry->base;
-		entry->size-=malloc_size;
-		entry->base+=malloc_size;
+		resourceEntry * next = entry->next;
+		int size = entry->size;
+		
+		entry = (resourceEntry*)(entry->base + malloc_size);
+		entry->base = (int)entry;
+		entry->size = size - malloc_size;
+		entry->next = next;
 		if (prev==NULL){
-			g_resource_map = (resourceEntry*)entry->base;
+			g_resource_map = entry;
+			printf("IT CAME IN HERE: %d\n", __LINE__);
 		}
 		else{
-			entry = (resourceEntry*)entry->base;
+			prev->next = entry;
+			printf("IT CAME IN HERE: %d\n", __LINE__);
 		}
 		//if there is not enough remaining free space to even store an entry, 
 		//you need to delete this entry and link up the free list appropriately
@@ -161,12 +168,15 @@ void* kma_malloc(kma_size_t malloc_size){
 			printf("IT CAME IN HERE: %d\n", __LINE__);
 			//nothing before it on the list to link up
 			if(prev==NULL){
+				printf("IT CAME IN HERE: %d\n", __LINE__);
 				g_resource_map = entry->next;
 			}
 			//link up previous entry to next entry
 			else{
+				printf("IT CAME IN HERE: %d\n", __LINE__);
+				printf("prev: %d\tprev->next:%d\tentry: %d\tentry->next: %d\tsize: %d\n", prev->base, (int)prev->next, (int)entry->base, (int)entry->next, entry->size);
 				prev->next = entry->next;
-				//entry = NULL;
+				entry = NULL;
 			}
 		}
 		char str[80];
