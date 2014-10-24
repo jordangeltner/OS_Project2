@@ -196,6 +196,7 @@ static bool coalesce(){
 	resourceEntry* current = g_resource_map;
 	while (current!=NULL && current->next!=NULL){
 		//is this block directly adjacent to the next block? and on the same page?
+		printf("Coalesce Attempt: current: %d\tnext: %d\tcurrentPage: %d\tnextPage: %d\n", current->base, current->next->base, (int)BASEADDR(current), (int)BASEADDR(current->next));
 		if((current->base+current->size)==current->next->base && BASEADDR(current)==BASEADDR(current->next)){
 			printf("Did a coalesce at %d\n", current->base);
 			result = TRUE;
@@ -220,7 +221,7 @@ kma_free(void* ptr, kma_size_t size)
 	if (g_resource_map == NULL){
 		newentry->next = NULL;
 		g_resource_map = newentry;
-		printResources("Freed (one of these is new)");
+		//printResources("Freed (one of these is new)");
 		return;
 	}
 	resourceEntry* entry = g_resource_map;
@@ -231,13 +232,13 @@ kma_free(void* ptr, kma_size_t size)
 			if(prev==NULL){
 				newentry->next = entry;
 				g_resource_map = newentry;
-				printResources("Freed (one of these is new)");
+				//printResources("Freed (one of these is new)");
 				return;
 			}
 			else{
 				prev->next = newentry;
 				newentry->next = entry;
-				printResources("Freed (one of these is new)");
+				//printResources("Freed (one of these is new)");
 				return;
 			}
 		}
@@ -247,7 +248,7 @@ kma_free(void* ptr, kma_size_t size)
 	//if we got here, the newentry must be placed at the end of the free list
 	prev->next = newentry;
 	newentry->next = NULL;
-	printResources("Freed (one of these is new)");
+	//printResources("Freed (one of these is new)");
 	return;
 }
 static void printResources(char* mystr){
