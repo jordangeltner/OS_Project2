@@ -84,7 +84,7 @@ void* kma_malloc(kma_size_t malloc_size){
 		g_resource_map->next = NULL;
 		
 		printf("first: %ld firstPage: %ld Base: %d\n", (long)first->ptr, (long)BASEADDR(first->ptr), (int)g_resource_map->base);
-		printResources("Empty Resource Map");
+		//printResources("Empty Resource Map");
 		return (void*)((unsigned int)first->ptr + sizeof(kma_page_t*));
 	}
 	resourceEntry* entry = g_resource_map;
@@ -138,38 +138,26 @@ void* kma_malloc(kma_size_t malloc_size){
 			else{
 				g_resource_map = NULL;
 			}
-			printResources("No hole fit");
+			//printResources("No hole fit");
 			return (void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*));
 		}
 	}
 	else // updating entry to reflect the remaining free space on the page
 	{
-		printResources("Start of hole-filling");
+		//printResources("Start of hole-filling");
 		printf("Found a hole: (size: %d, base: %d)\n", entry->size, entry->base);
 		void* ptr = (void*)entry->base;
 		resourceEntry * next = entry->next;
 		int size = entry->size;
-		
-		entry = (resourceEntry*)(entry->base + malloc_size);
-		entry->base = (int)entry;
-		entry->size = size - malloc_size;
-		entry->next = next;
-		if (prev==NULL){
-			g_resource_map = entry;
-			printf("IT CAME IN HERE: %d\n", __LINE__);
-		}
-		else{
-			prev->next = entry;
-			printf("IT CAME IN HERE: %d\n", __LINE__);
-		}
-		//if there is not enough remaining free space to even store an entry, 
-		//you need to delete this entry and link up the free list appropriately
-		if(entry->size < sizeof(resourceEntry)){
-			printf("IT CAME IN HERE: %d\n", __LINE__);
+		int newsize = entry->size - malloc_size;
+		// not enough room for a resource entry
+		if (newsize < sizeof(resourceEntry)){
+			printf("IT CAME IN HERE: %d\tSIZE: %d\n", __LINE__, g_resource_map->size);
 			//nothing before it on the list to link up
 			if(prev==NULL){
-				printf("IT CAME IN HERE: %d\n", __LINE__);
+				printf("IT CAME IN HERE: %d\tSIZE: %d\n", __LINE__, g_resource_map->size);
 				g_resource_map = entry->next;
+				printf("%d: size now %d\n", __LINE__, g_resource_map->size);
 			}
 			//link up previous entry to next entry
 			else{
@@ -179,6 +167,22 @@ void* kma_malloc(kma_size_t malloc_size){
 				entry = NULL;
 			}
 		}
+		else{
+			// we have enough room, so update the values
+			entry = (resourceEntry*)(entry->base + malloc_size);
+			entry->base = (int)entry;
+			entry->size = size - malloc_size;
+			entry->next = next;
+			if (prev==NULL){
+				g_resource_map = entry;
+				printf("IT CAME IN HERE: %d\tSIZE: %d\n", __LINE__, g_resource_map->size);
+			}
+			else{
+				prev->next = entry;
+				printf("IT CAME IN HERE: %d\n", __LINE__);
+			}
+		}
+		
 		char str[80];
 		sprintf(str, "Found a hole at %d", (int)ptr);
 		printResources(str);
@@ -208,12 +212,15 @@ void
 kma_free(void* ptr, kma_size_t size)
 {
 	printf("Free: ptr:%d  size:%d   line:%d\n",(int)ptr,(int)size,__LINE__); fflush(stdout);
+	// can't allocate a resource entry into the spot with not enough, so fuck off
+	if (size < sizeof(resourceEntry)){return;}
 	resourceEntry* newentry = ptr;
 	newentry->base = (int)ptr;
 	newentry->size = size;
 	if (g_resource_map == NULL){
 		newentry->next = NULL;
 		g_resource_map = newentry;
+		printResources("Freed (one of these is new)");
 		return;
 	}
 	resourceEntry* entry = g_resource_map;
@@ -224,11 +231,13 @@ kma_free(void* ptr, kma_size_t size)
 			if(prev==NULL){
 				newentry->next = entry;
 				g_resource_map = newentry;
+				printResources("Freed (one of these is new)");
 				return;
 			}
 			else{
 				prev->next = newentry;
 				newentry->next = entry;
+				printResources("Freed (one of these is new)");
 				return;
 			}
 		}
@@ -238,18 +247,23 @@ kma_free(void* ptr, kma_size_t size)
 	//if we got here, the newentry must be placed at the end of the free list
 	prev->next = newentry;
 	newentry->next = NULL;
+	printResources("Freed (one of these is new)");
 	return;
 }
 static void printResources(char* mystr){
 	resourceEntry* entry = g_resource_map;
-	int counter = 0;
+	int counter = 0, size = 0;
+	bool quit = FALSE;
 	printf("\n----PRINTING ENTRIES----\n");
 	while(entry != NULL){
 		printf("NUMBER: %d\tSIZE: %d\tBASE: %d\tNEXT: %d\tMESSAGE: %s\n", counter, entry->size, entry->base, (unsigned int)entry->next, mystr);
+		if (entry->size <= 0){quit = TRUE;}
+		size+=entry->size;
 		entry=entry->next;
 		counter++;
 	}
-	printf("----PRINTED %d ENTRIES----\n\n", counter);
+	printf("----PRINTED %d ENTRIES FOR %d BYTES OF FREE SPACE----\n\n", counter, size);
+	if (quit){exit(EXIT_FAILURE);}
 	return;
 }
 
