@@ -62,6 +62,7 @@ resourceEntry* g_resource_map = NULL;
 
 /************Function Prototypes******************************************/
 static bool coalesce();
+static void printResources(char *);
 
 /************External Declaration*****************************************/
 
@@ -75,17 +76,24 @@ void* kma_malloc(kma_size_t malloc_size){
 		// if the request is larger than the size of a page we can't allocate it
 		if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 		kma_page_t* first = get_page();
-		g_resource_map = (resourceEntry*)((int)first + sizeof(kma_page_t*) + malloc_size);
+		
+		g_resource_map = (resourceEntry*)((unsigned int)first->ptr + sizeof(kma_page_t*) + malloc_size);
+		printf("Resource_map_loc: %d\n", (int)g_resource_map);
 		g_resource_map->size = PAGESIZE - sizeof(kma_page_t*) - malloc_size;
-		g_resource_map->base = (int)first + malloc_size + sizeof(kma_page_t*);
+		g_resource_map->base = (unsigned int)first->ptr + malloc_size + sizeof(kma_page_t*);
 		g_resource_map->next = NULL;
-	
-		return (void*)((int)first + sizeof(kma_page_t*));
+		
+		printf("first: %ld firstPage: %ld Base: %d\n", (long)first->ptr, (long)BASEADDR(first->ptr), (int)g_resource_map->base);
+		printResources("Empty Resource Map");
+		return (void*)((unsigned int)first->ptr + sizeof(kma_page_t*));
 	}
 	resourceEntry* entry = g_resource_map;
+	printf("head of resource map: %d\n", entry->base);
+
 	resourceEntry* prev = NULL;
 	while(entry!=NULL){
 		//found big enough hole
+		printf("Searching for hole of size %d, at %d\n", malloc_size, entry->base);
 		if(malloc_size <= entry->size){
 			break;
 		}
@@ -97,20 +105,24 @@ void* kma_malloc(kma_size_t malloc_size){
 	{
 		bool coalesced = FALSE;
 		//attempt to merge holes, if any were merged, coalesced==TRUE
+		printf("Didn't find a hole for %d, coalescing\n", malloc_size);
 		while(coalesce()){
 			coalesced = TRUE;
 		}
 		if (coalesced){
+			printf("Coalesced while searching for hole of size %d\n", malloc_size);
 			return kma_malloc(malloc_size);
 		}
 		//still can’t place it. create new page
 		else{
+			printf("Can't find a hole even after coalescing, making a new page\n");
 			// if the request is larger than the size of a page we can't allocate it
 			if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 			kma_page_t* newpage = get_page();
-			resourceEntry* newentry = (resourceEntry*)((int)newpage + sizeof(kma_page_t*) + malloc_size);
+			printf("Made a new page at %p\n", newpage->ptr);
+			resourceEntry* newentry = (resourceEntry*)((unsigned int)newpage->ptr + sizeof(kma_page_t*) + malloc_size);
 			newentry->size = PAGESIZE - sizeof(kma_page_t*) - malloc_size;
-			newentry->base = (int)newpage + malloc_size + sizeof(kma_page_t*);
+			newentry->base = (unsigned int)newpage->ptr + malloc_size + sizeof(kma_page_t*);
 			newentry->next = NULL;
 			//if there is not enough remaining free space to even store an entry, 
 			//you need to delete this entry and link up the free list appropriately
@@ -126,17 +138,27 @@ void* kma_malloc(kma_size_t malloc_size){
 			else{
 				g_resource_map = NULL;
 			}
-			return (void*)((int)newpage + sizeof(kma_page_t*));
+			printResources("No hole fit");
+			return (void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*));
 		}
 	}
 	else // updating entry to reflect the remaining free space on the page
 	{
+		printResources("Start of hole-filling");
+		printf("Found a hole: (size: %d, base: %d)\n", entry->size, entry->base);
 		void* ptr = (void*)entry->base;
 		entry->size-=malloc_size;
 		entry->base+=malloc_size;
+		if (prev==NULL){
+			g_resource_map = entry = (resourceEntry*)entry->base;
+		}
+		else{
+			entry = (resourceEntry*)entry->base;
+		}
 		//if there is not enough remaining free space to even store an entry, 
 		//you need to delete this entry and link up the free list appropriately
-		if(entry->size<sizeof(resourceEntry)){
+		if(entry->size < sizeof(resourceEntry)){
+			printf("IT CAME IN HERE: %d\n", __LINE__);
 			//nothing before it on the list to link up
 			if(prev==NULL){
 				g_resource_map = entry->next;
@@ -144,9 +166,12 @@ void* kma_malloc(kma_size_t malloc_size){
 			//link up previous entry to next entry
 			else{
 				prev->next = entry->next;
-				entry = NULL;
+				//entry = NULL;
 			}
 		}
+		char str[80];
+		sprintf(str, "Found a hole at %d", (int)ptr);
+		printResources(str);
 		return ptr;
 	}
 }
@@ -158,6 +183,7 @@ static bool coalesce(){
 	while (current!=NULL && current->next!=NULL){
 		//is this block directly adjacent to the next block? and on the same page?
 		if((current->base+current->size)==current->next->base && BASEADDR(current)==BASEADDR(current->next)){
+			printf("Did a coalesce at %d\n", current->base);
 			result = TRUE;
 			current->size+=current->next->size;
 			current->next=current->next->next;
@@ -202,6 +228,18 @@ kma_free(void* ptr, kma_size_t size)
 	//if we got here, the newentry must be placed at the end of the free list
 	prev->next = newentry;
 	newentry->next = NULL;
+	return;
+}
+static void printResources(char* mystr){
+	resourceEntry* entry = g_resource_map;
+	int counter = 0;
+	printf("\n----PRINTING ENTRIES----\n");
+	while(entry != NULL){
+		printf("NUMBER: %d\tSIZE: %d\tBASE: %d\tNEXT: %d\tMESSAGE: %s\n", counter, entry->size, entry->base, (unsigned int)entry->next, mystr);
+		entry=entry->next;
+		counter++;
+	}
+	printf("----PRINTED %d ENTRIES----\n\n", counter);
 	return;
 }
 
