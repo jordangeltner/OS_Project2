@@ -150,7 +150,7 @@ void* kma_malloc(kma_size_t malloc_size){
 		entry->size-=malloc_size;
 		entry->base+=malloc_size;
 		if (prev==NULL){
-			g_resource_map = entry = (resourceEntry*)entry->base;
+			g_resource_map = (resourceEntry*)entry->base;
 		}
 		else{
 			entry = (resourceEntry*)entry->base;
