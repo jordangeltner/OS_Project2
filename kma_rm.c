@@ -84,7 +84,7 @@ void* kma_malloc(kma_size_t malloc_size){
 		g_resource_map->next = NULL;
 		
 		printf("first: %ld firstPage: %ld Base: %d\n", (long)first->ptr, (long)BASEADDR(first->ptr), (int)g_resource_map->base);
-		//printResources("Empty Resource Map");
+		printResources("Empty Resource Map");
 		return (void*)((unsigned int)first->ptr + sizeof(kma_page_t*));
 	}
 	resourceEntry* entry = g_resource_map;
@@ -93,8 +93,11 @@ void* kma_malloc(kma_size_t malloc_size){
 	resourceEntry* prev = NULL;
 	while(entry!=NULL){
 		//found big enough hole
-		printf("Searching for hole of size %d, at %d\n", malloc_size, entry->base);
-		if(malloc_size <= entry->size){
+		//printf("Searching for hole of size %d, at %d\n", malloc_size, entry->base);
+		if(malloc_size <= entry->size && entry->size >= 12){
+			if (malloc_size < 12){
+				malloc_size = 12;
+			}
 			break;
 		}
 		prev = entry;
@@ -138,13 +141,13 @@ void* kma_malloc(kma_size_t malloc_size){
 			else{
 				g_resource_map = NULL;
 			}
-			//printResources("No hole fit");
+			printResources("No hole fit");
 			return (void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*));
 		}
 	}
 	else // updating entry to reflect the remaining free space on the page
 	{
-		//printResources("Start of hole-filling");
+		printResources("Start of hole-filling");
 		printf("Found a hole: (size: %d, base: %d)\n", entry->size, entry->base);
 		void* ptr = (void*)entry->base;
 		resourceEntry * next = entry->next;
@@ -195,9 +198,18 @@ static bool coalesce(){
 	bool result = FALSE;
 	resourceEntry* current = g_resource_map;
 	while (current!=NULL && current->next!=NULL){
+		// is the block a full page?
+		//FIXME
+		if (current->next->size == PAGESIZE - sizeof(kma_page_t*)){
+			kma_page_t* pageptr = (kma_page_t*)(current->next->base - 4);
+			printf("pageptr: %p\tpageBase: %p\tBASEADDR: %p\n", pageptr, pageptr->ptr, BASEADDR(pageptr->ptr));
+			current->next = current->next->next;
+			free_page(pageptr);
+			printf("Freed a Page!!!!!\n");
+		}
 		//is this block directly adjacent to the next block? and on the same page?
-		printf("Coalesce Attempt: current: %d\tnext: %d\tcurrentPage: %d\tnextPage: %d\n", current->base, current->next->base, (int)BASEADDR(current), (int)BASEADDR(current->next));
-		if((current->base+current->size)==current->next->base && BASEADDR(current)==BASEADDR(current->next)){
+		//printf("Coalesce Attempt: current: %d\tnext: %d\tcurrentPage: %d\tnextPage: %d\n", current->base, current->next->base, (int)BASEADDR(current), (int)BASEADDR(current->next));
+		else if((current->base+current->size)==current->next->base && BASEADDR(current)==BASEADDR(current->next)){
 			printf("Did a coalesce at %d\n", current->base);
 			result = TRUE;
 			current->size+=current->next->size;
@@ -212,16 +224,16 @@ static bool coalesce(){
 void
 kma_free(void* ptr, kma_size_t size)
 {
+	while(coalesce()){};
 	printf("Free: ptr:%d  size:%d   line:%d\n",(int)ptr,(int)size,__LINE__); fflush(stdout);
 	// can't allocate a resource entry into the spot with not enough, so fuck off
-	if (size < sizeof(resourceEntry)){return;}
 	resourceEntry* newentry = ptr;
 	newentry->base = (int)ptr;
 	newentry->size = size;
 	if (g_resource_map == NULL){
 		newentry->next = NULL;
 		g_resource_map = newentry;
-		//printResources("Freed (one of these is new)");
+		printResources("Freed (one of these is new)");
 		return;
 	}
 	resourceEntry* entry = g_resource_map;
@@ -232,13 +244,13 @@ kma_free(void* ptr, kma_size_t size)
 			if(prev==NULL){
 				newentry->next = entry;
 				g_resource_map = newentry;
-				//printResources("Freed (one of these is new)");
+				printResources("Freed (one of these is new)");
 				return;
 			}
 			else{
 				prev->next = newentry;
 				newentry->next = entry;
-				//printResources("Freed (one of these is new)");
+				printResources("Freed (one of these is new)");
 				return;
 			}
 		}
@@ -248,7 +260,7 @@ kma_free(void* ptr, kma_size_t size)
 	//if we got here, the newentry must be placed at the end of the free list
 	prev->next = newentry;
 	newentry->next = NULL;
-	//printResources("Freed (one of these is new)");
+	printResources("Freed (one of these is new)");
 	return;
 }
 static void printResources(char* mystr){
