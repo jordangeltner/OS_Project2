@@ -22,7 +22,7 @@ TEAM = "wgr499+jmg920"
 VERSION = `date +%Y%m%d%H%M%S`
 PROJ = kma
 
-COMPETITION = KMA_RM
+COMPETITION = KMA_DUMMY
 
 CC = gcc
 MV = mv
@@ -91,7 +91,7 @@ kma_mck2: ${SRCS}
 	${CC} ${CFLAGS} -DKMA_MCK2 -o $@ ${SRCS}
 
 kma_bud: ${SRCS}
-	${CC} ${CFLAGS} -DKMA_BUD -o $@ ${SRCS} -lm
+	${CC} ${CFLAGS} -DKMA_BUD -o $@ ${SRCS}
 
 kma_lzbud: ${SRCS}
 	${CC} ${CFLAGS} -DKMA_LZBUD -o $@ ${SRCS}

@@ -37,7 +37,6 @@
 /************System include***********************************************/
 #include <assert.h>
 #include <stdlib.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -77,6 +76,7 @@ void mark_allocated(freeEntry *, int);
 void mark_free(freeEntry *, int);
 void find_and_combine(freeEntry *, int);
 void print_headers(bool);
+float power(float, int);
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -97,10 +97,11 @@ every page has first 4 bytes as kma_page_t*, bytes 4-8 as bitfield, bytes 8-32 a
 */
 
 void* kma_malloc(kma_size_t malloc_size){
-	printf("Mallocing %d\n", malloc_size);
-	if (malloc_size > 8160){
+	if (malloc_size > (PAGESIZE - sizeof(kma_page_t*) - sizeof(int*) - sizeof(headers))){
 		return NULL;
 	}
+	
+	printf("Mallocing %d\n", malloc_size);
 	
 	//head_ptrs is the array of pointers to the 6 free pointers (each free block has ptr to next and ptr to prev) 
 	if (my_page == NULL){
@@ -133,9 +134,11 @@ void* kma_malloc(kma_size_t malloc_size){
 
 //finds the closest order that has block sizes > malloc_size
 int get_order(int malloc_size){
-	int i;
+	int i, num;
 	for (i = 0; i < 6; i++){
-		if (map_num(i) > malloc_size){
+		num = map_num(i);
+		if (num == -1){return -1;}
+		if (num > malloc_size){
 			return i;
 		}
 	}
@@ -146,7 +149,7 @@ int get_order(int malloc_size){
 //recursively splits blocks of larger order until at least one exists of matching
 //returns NULL if no larger-order blocks can be split
 void * get_matching_block(int order){
-	if (order > 5 || order < 0){
+	if (order > MAX_ORDER || order < 0){
 		return NULL;
 	}
 	// its offset by the kma pointer and the bitfield
@@ -155,7 +158,7 @@ void * get_matching_block(int order){
 
 	//if we find an appropriate block, update head_ptrs, bitmap, then return
 	if (entry != NULL){
-		printf("Found entry %p at the desired level: %d\n", (void*)entry, order);
+		if (DEBUG > 0) {printf("Found entry %p at the desired level: %d\n", (void*)entry, order);}
 		mark_allocated(entry, order);
 	}
 	//didn’t find an entry so we have to split until we find one of the right order
@@ -180,7 +183,7 @@ freeEntry * split_and_get(int order){
 		//we already know there isn’t one at a lower level
 		if (entry != NULL){
 			if (level == order){
-				printf("Found entry %p at the desired level: %d\n", (void*)entry, order);
+				if(DEBUG > 0){printf("Found entry %p at the desired level: %d\n", (void*)entry, order);}
 				mark_allocated(entry, order);
 				return entry;
 			}
@@ -193,7 +196,7 @@ freeEntry * split_and_get(int order){
 			h->arr[level-1] = entry;
 			if (DEBUG > 0){printf("Set an entry in level %d to the addr at %p\n", (level-1), (void*)entry);}
 			//make a buddy that starts at half its original order's addr
-			freeEntry* buddy = (freeEntry*)((int)entry + (int)(BLOCKSIZE*pow(2, level-1)));
+			freeEntry* buddy = (freeEntry*)((int)entry + (int)(BLOCKSIZE*power(2, level-1)));
 			//link the buddy into level-1
 			entry->next = buddy;
 			buddy->previous = entry;
@@ -212,14 +215,14 @@ freeEntry * split_and_get(int order){
 //([0, 1, 2 … 5], [255, 510, 1020 … 8160])
 int map_num(int num){
 	if (num < 6 && num >= 0){
-		return BLOCKSIZE * pow(2, num);
+		return BLOCKSIZE * power(2, num);
 	}
 	else if ((num % BLOCKSIZE) < 6 && (num % BLOCKSIZE) >= 0){
 		return num % BLOCKSIZE;
 	}
 	else{
 		printf("Got a bad argument to map_num: %d\n", num);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 }
 
@@ -235,7 +238,7 @@ void mark_allocated(freeEntry * entry, int order){
 
 	//update the bitmap to show that the space at entry is allocated
 	int * bit_field = BITFIELD;
-	int entry_size = pow(2,order);
+	int entry_size = power(2,order);
 	int i, relative, index;
 
 	//entry’s addr - base addr - 32 should give the bitfield-relative addressing (% 255)
@@ -262,7 +265,7 @@ void mark_free(freeEntry* entry, int order){
 		current->previous = entry;
 	}
 	h->arr[order] = entry;
-	int entry_size = pow(2,order);
+	int entry_size = power(2,order);
 	int i, relative, index;
 
 	//entry’s addr - base addr - 32 should give the bitfield-relative addressing (% 255)
@@ -277,26 +280,30 @@ void mark_free(freeEntry* entry, int order){
 
 void kma_free(void* ptr, kma_size_t size){
 	printf("Freeing %d\n", size);
+	print_headers(TRUE);
 	// have to free the entire block, not a fraction
 	int* bitfield = BITFIELD;
 	if (size < BLOCKSIZE){
 		size = BLOCKSIZE;
 	}
-	printf("Got a bitfield at %p\n", (void*) bitfield);
+	//printf("Got a bitfield at %p\n", (void*) bitfield);
 	freeEntry * entry = (freeEntry*)ptr;
 	int order = get_order(size);
+	printf("order: %d\n", order);
 	
-	print_headers(TRUE);
+	//print_headers(TRUE);
 	//update bitfield and linked lists
 	mark_free(entry, order);
-	printf("Marked entry at %p as free\n", (void*) entry);
+	//printf("Marked entry at %p as free\n", (void*) entry);
 
 	//see if the buddy of entry is free. if so, combine them
 	//if combined, look for the new combo’s boddy
+	
 	find_and_combine(entry, order);
 	if (*bitfield == 0){
 		free_page(my_page->ptr);
 	}
+	
 	return;
 }
 
@@ -307,7 +314,7 @@ void find_and_combine(freeEntry *entry, int order){
 	if (order == MAX_ORDER){return;}
 	int * bitfield = BITFIELD;
 	headers* h = (headers*)HEAD_PTRS;
-	int length = pow(2, order);
+	int length = power(2, order);
 	int relative, index, i;
 	bool free = TRUE;
 	
@@ -316,10 +323,12 @@ void find_and_combine(freeEntry *entry, int order){
 	relative = (int)entry - (int)BASEADDR(entry) - sizeof(kma_page_t*) - sizeof(int*) - sizeof(headers);
 	index = relative / BLOCKSIZE;
 	int b_index = index ^ length;
+	int bit;
 	printf("ORDER: %d\tentry index at %p, buddy index at %p. length: %d\n", order, (void*)index, (void*)b_index, length);
 	//is at 100 ^ 1000 = 1100 = 12. so then check bits 12 through 12 + 4 to be free.
-	for (i = 0; i < length; i++){
-		if((*bitfield & (1 << (b_index+i))) > 0){
+	for (i = b_index; i < (b_index + length); i++){
+		bit = (int)(*bitfield & (1 << i));
+		if (bit > 0){
 			free = FALSE;
 		}
 	}
@@ -377,6 +386,23 @@ void print_headers(bool p){
 			entry = entry->next;
 		}
 	}
+}
+// http://www.geeksforgeeks.org/write-a-c-program-to-calculate-powxn/
+float power(float x, int y)
+{
+    float temp;
+    if( y == 0)
+       return 1;
+    temp = power(x, y/2);       
+    if (y%2 == 0)
+        return temp*temp;
+    else
+    {
+        if(y > 0)
+            return x*temp*temp;
+        else
+            return (temp*temp)/x;
+    }
 }
 
 #endif // KMA_BUD
