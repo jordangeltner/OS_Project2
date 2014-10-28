@@ -52,7 +52,7 @@
  */
 #define MAX_ORDER 5
 #define BLOCKSIZE 255
-#define HEAD_PTRS (void*)(my_page->ptr + sizeof(kma_page_t*) + sizeof(int*))
+#define HEAD_PTRS(x) (void*)(x->ptr + sizeof(kma_page_t*) + sizeof(int*))
 #define BITFIELD (int*)(my_page->ptr + sizeof(kma_page_t*))
 #define LINE printf("LINE: %d\n", __LINE__)
 #define DEBUG 0
@@ -63,7 +63,8 @@ typedef struct freeEntry {
 } freeEntry;
 
 typedef struct headers {
-	struct freeEntry* arr[6];
+	struct freeEntry* arr[5];
+	struct kma_page_t* next;
 } headers;
 /************Global Variables*********************************************/
 static kma_page_t* my_page = NULL;
@@ -77,6 +78,8 @@ void mark_free(freeEntry *, int);
 void find_and_combine(freeEntry *, int);
 void print_headers(bool);
 float power(float, int);
+void our_free_page(void*);
+kma_page_t* create_page();
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -102,34 +105,42 @@ void* kma_malloc(kma_size_t malloc_size){
 	}
 	
 	printf("Mallocing %d\n", malloc_size);
-	
-	//head_ptrs is the array of pointers to the 6 free pointers (each free block has ptr to next and ptr to prev) 
-	if (my_page == NULL){
-		my_page = get_page();
-
-		//always put the bit_field at page’s baseaddr + 4
-		int * bit_field = BITFIELD;
-		//all of the blocks are initially free
-		*bit_field = 0;
-
-		//make an array of head pointers (takes 24 bytes)
-		headers * h = (headers*)HEAD_PTRS;
-		freeEntry* five = (freeEntry*)((int)h + 24);
-		five->next = NULL;
-		five->previous = NULL;
-		int i;
-		for (i = 0; i < 6; i++){
-			h->arr[i] = NULL;
-		}
-		h->arr[5] = five;
-	}
 	//get the desired order
 	int order = get_order(malloc_size);
 	if (DEBUG > 1){printf("Order: %d\n", order);}
 	if (order == -1){
 		return NULL;
 	}
+	//head_ptrs is the array of pointers to the 6 free pointers (each free block has ptr to next and ptr to prev) 
+	if (my_page == NULL){
+		my_page = create_page();
+		if (order==5){
+			//TODO
+			//set all BITFIELD to 1s
+			return (void*)((int)h+24);
+		}
+	}
 	return get_matching_block(order);
+}
+
+//creates a new page
+kma_page_t* create_page(){
+	kma_page_t* page = get_page();
+	//correct the ptr returned by get_page if it does not line up with BASEADDR
+	if(page->ptr != BASEADDR(page->ptr)){ page->ptr = BASEADDR(page->ptr); }
+	//always put the bit_field at page’s baseaddr + 4
+	int * bit_field = BITFIELD;
+	//all of the blocks are initially free
+	*bit_field = 0;
+
+	//make an array of head pointers (takes 24 bytes)
+	headers * h = (headers*)HEAD_PTRS(page);
+	int i;
+	for (i = 0; i < 5; i++){
+		h->arr[i] = NULL;
+	}
+	h->next = NULL;
+	return page;
 }
 
 //finds the closest order that has block sizes > malloc_size
@@ -153,7 +164,28 @@ void * get_matching_block(int order){
 		return NULL;
 	}
 	// its offset by the kma pointer and the bitfield
-	headers* h = (headers *)HEAD_PTRS;
+	headers* h = (headers *)HEAD_PTRS(my_page);
+	if(order==5){
+		//create a new page
+		kma_page_t* prev = NULL;
+		kma_page_t* current = my_page;
+		headers* iter = h;
+		while(current!=NULL){
+			prev = current;
+			current = iter->next;
+			iter = (headers *)HEAD_PTRS(current);
+		}
+		//there's no existing my_page
+		if(prev==NULL){
+			//not possible
+			printf("IMPOSSIBLE\n");
+			exit(EXIT_FAILURE);
+		}
+		//prev must be the last page
+		iter = (headers *)HEAD_PTRS(prev);
+		iter->next = create_page();
+		return (void*)((int)iter->next->ptr+sizeof(kma_page_t*)+sizeof(int*)+sizeof(headers));
+	}
 	freeEntry* entry = h->arr[order];
 
 	//if we find an appropriate block, update head_ptrs, bitmap, then return
@@ -173,7 +205,7 @@ void * get_matching_block(int order){
 //split if found and set level to order and continue searching
 //if match found and order == level, return
 freeEntry * split_and_get(int order){
-	headers* h = (headers*)HEAD_PTRS;
+	headers* h = (headers*)HEAD_PTRS(my_page);
 	int level = order + 1;
 	freeEntry* entry = h->arr[level];
 	while (level <= MAX_ORDER && level >= 0){
@@ -208,7 +240,31 @@ freeEntry * split_and_get(int order){
 			level++;
 		}
 	}
-	return NULL;
+	//TODO: REQUEST NEW PAGE AND RETURN proper address of allocated block
+	kma_page_t* prev = NULL;
+	kma_page_t* current = my_page;
+	headers* iter = h;
+	while(current!=NULL){
+		prev = current;
+		current = iter->next;
+		iter = (headers *)HEAD_PTRS(current);
+	}
+	//there's no existing my_page
+	if(prev==NULL){
+		//not possible
+		printf("IMPOSSIBLE\n");
+		exit(EXIT_FAILURE);
+	}
+	//prev must be the last page
+	iter = (headers *)HEAD_PTRS(prev);
+	iter->next = create_page();
+	freeEntry* left = (freeEntry*)((int)iter->next->ptr+sizeof(kma_page_t*)+sizeof(int*)+sizeof(headers));
+	freeEntry* right = (freeEntry*)((int)left+4080);
+	left->next = right;
+	left->previous = NULL;
+	right->previous = left;
+	h->arr[4] = left;
+	return split_and_get(order);
 }
 
 //maps from orders to sizes and sizes to orders
@@ -229,11 +285,11 @@ int map_num(int num){
 //marks in the bitfield that the block is allocated
 //also updates the list header if the used block was the header
 void mark_allocated(freeEntry * entry, int order){
-	headers * h = (headers*)HEAD_PTRS;
+	headers * h = (headers*)HEAD_PTRS(my_page);
 	//entry’s next becomes the head_ptr of the list
 	h->arr[order] = entry->next;
 	if (entry->next != NULL){
-		entry->next->previous = NULL;
+		entry->next->previous = entry->previous;
 	}
 
 	//update the bitmap to show that the space at entry is allocated
@@ -254,7 +310,7 @@ void mark_allocated(freeEntry * entry, int order){
 //updates the bitfield and the linked list headers that the block is free
 void mark_free(freeEntry* entry, int order){
 	int * bitfield = BITFIELD;
-	headers * h = (headers*)HEAD_PTRS;
+	headers * h = (headers*)HEAD_PTRS(my_page);
 	freeEntry * current = h->arr[order];
 	if (current == NULL){
 		entry->next = NULL;
@@ -290,6 +346,12 @@ void kma_free(void* ptr, kma_size_t size){
 	freeEntry * entry = (freeEntry*)ptr;
 	int order = get_order(size);
 	printf("order: %d\n", order);
+	//need to free the page, no header exists to hold free space of a whole page
+	if(order==MAX_ORDER){
+		our_free_page(ptr);
+		return;
+	}
+	//not trying to free a whole page
 	
 	//print_headers(TRUE);
 	//update bitfield and linked lists
@@ -300,10 +362,46 @@ void kma_free(void* ptr, kma_size_t size){
 	//if combined, look for the new combo’s boddy
 	
 	find_and_combine(entry, order);
-	if (*bitfield == 0){
-		free_page(my_page->ptr);
-	}
 	
+	return;
+}
+
+//Frees a page, properly linking up the existing headers
+void our_free_page(void* ptr){
+	headers* h = (headers*)((int)ptr-sizeof(headers));
+	//trying to free the entrance to all our stuff
+	if(my_page->ptr==BASEADDR(ptr)){
+		kma_page_t* page = my_page;
+		my_page = h->next;
+		headers* dest = (headers*)HEAD_PTRS(my_page);
+		//MAKE SURE THIS IS WORKING
+		*dest = *h;
+		//print_headers(TRUE);
+		free_page(page);
+		//print_headers(TRUE);
+		return;
+	}
+	//trying to free a page that is not the entrance
+	headers* iter = h;
+	headers* prev = NULL;
+	kma_page_t* current = my_page;
+	while(current!=NULL){
+		//found the matching page
+		if(current->ptr==BASEADDR(ptr)){
+			break;
+		}
+		current = iter->next;
+		prev = iter;
+		iter = (headers*)HEAD_PTRS(current);
+	}
+	if(prev == NULL){
+		//not possible
+		printf("IMPOSSIBLE TO FREE THIS PAGE, DNE\n");
+		exit(EXIT_FAILURE);
+	}
+	kma_page_t* page = prev->next;
+	prev->next = iter->next;
+	free_page(page);
 	return;
 }
 
@@ -313,79 +411,125 @@ void kma_free(void* ptr, kma_size_t size){
 void find_and_combine(freeEntry *entry, int order){
 	if (order == MAX_ORDER){return;}
 	int * bitfield = BITFIELD;
-	headers* h = (headers*)HEAD_PTRS;
+	headers* h = (headers*)HEAD_PTRS(my_page);
 	int length = power(2, order);
 	int relative, index, i;
 	bool free = TRUE;
 	
 	//look in bitfield for buddy. if its allocated, return
 	//buddy should be at base XOR length. a block of length 4 at addr 8's buddy
-	relative = (int)entry - (int)BASEADDR(entry) - sizeof(kma_page_t*) - sizeof(int*) - sizeof(headers);
-	index = relative / BLOCKSIZE;
-	int b_index = index ^ length;
-	int bit;
-	printf("ORDER: %d\tentry index at %p, buddy index at %p. length: %d\n", order, (void*)index, (void*)b_index, length);
-	//is at 100 ^ 1000 = 1100 = 12. so then check bits 12 through 12 + 4 to be free.
-	for (i = b_index; i < (b_index + length); i++){
-		bit = (int)(*bitfield & (1 << i));
-		if (bit > 0){
-			free = FALSE;
+	void* baseaddress = BASEADDR(entry);
+	void* relativeaddress = (void*)((int)(entry)-(int)(baseaddress));
+	int size = map_num(order);
+	void* buddy = (void*)((int)relativeaddress-size+2*(((int)(relativeaddress)+size)%(2*size)));
+	bool buddytoleft = ((int)(relativeaddress)+size)%(2*size) <= 0;
+	freeEntry* current = h->arr[order];
+	while(current!=NULL){
+		if ((void*)current==buddy){
+			break;
 		}
+		current = current->next;
 	}
-	//if all <length> bits are free, the buddy is free
-	//if its free, combine them
-	if (free){
-		freeEntry* buddy = (freeEntry*)((int)entry ^ (length*BLOCKSIZE));
-		//save the entry with the lower addr, so swap addrs
-		if ((int)buddy < (int)entry){
-			int budint = (int)buddy;
-			int entint = (int)entry;
-			entint = entint ^ budint;
-			budint = entint ^ budint;
-			entint = entint ^ budint;
-			buddy = (freeEntry*)budint;
-			entry = (freeEntry*)entint;
-		}
-		//relink their old neighbor’s pointers
-		if (buddy->next && buddy->previous){
-			buddy->next->previous = buddy->previous;
-			buddy->previous->next = buddy->next->previous;
-		}
-		else if (buddy->previous){
-			buddy->previous->next = NULL;
-		}
-		if (h->arr[order] == buddy){
-			h->arr[order] = buddy->next;
-		}
-		else if (h->arr[order] == entry){
-			h->arr[order] = entry->next;
-		}
-		//link them into the higher order of the head_ptrs
-		freeEntry* higher = h->arr[order+1];
-		if (higher != NULL){
-			entry->next = higher;
-			higher->previous = entry;
-		}
-		//add it to the head of the list for that size
-		h->arr[order+1] = entry;
-		//try to join the combined entry to its new buddy
-		find_and_combine(entry, order+1);
+	//no buddy in list
+	if(current==NULL){
+		return;
 	}
-	return;
+	//buddy found
+	else{
+		//replace header
+		h->arr[order] = entry->next;
+		//buddy is the new header, so replace it again
+		if(buddy==(void*)h->arr[order]){
+			h->arr[order] = ((freeEntry*)buddy)->next;
+		}
+		//not the header, so link up the previous and next appropriately
+		else{
+			((freeEntry*)buddy)->previous->next = ((freeEntry*)buddy)->next;
+			//next exists, so link its previous correctly
+			if(((freeEntry*)buddy)->next!=NULL){
+				((freeEntry*)buddy)->next->previous = ((freeEntry*)buddy)->previous;
+			}
+		}
+		//are we joining buddies into a wholly free page?
+		if((order+1)>=MAX_ORDER){
+			if(buddytoleft){
+				our_free_page(buddy);
+			}
+			else{
+				our_free_page((void*)entry);
+			}
+			return;
+		}
+		//not a wholly free page, so insert leftmost entry into next level
+		else{
+			//insert leftmost entry (buddy) into next level
+			freeEntry * freehead = h->arr[order+1];
+			if(buddytoleft){
+				freeEntry * freehead = h->arr[order+1];
+				if (freehead == NULL){
+					((freeEntry*)buddy)->next = NULL;
+					((freeEntry*)buddy)->previous = NULL;
+				}
+				else{
+					((freeEntry*)buddy)->next = freehead;
+					freehead->previous = ((freeEntry*)buddy);
+				}
+				h->arr[order+1] = ((freeEntry*)buddy);
+			}
+			//insert leftmost entry (entry) into next level
+			else{
+				if (freehead == NULL){
+					entry->next = NULL;
+					entry->previous = NULL;
+				}
+				else{
+					entry->next = freehead;
+					freehead->previous = entry;
+				}
+				h->arr[order+1] = entry;
+			}
+		}
+		if(buddytoleft){
+			find_and_combine((freeEntry*)buddy,order+1);
+		}
+		else{
+			find_and_combine(entry,order+1);
+		}
+		return;
+	}
+	// relative = (int)entry - (int)BASEADDR(entry) - sizeof(kma_page_t*) - sizeof(int*) - sizeof(headers);
+// 	index = relative / BLOCKSIZE;
+// 	int b_index = index ^ length;
+// 	int bit;
+// 	printf("ORDER: %d\tentry index at %p, buddy index at %p. length: %d\n", order, (void*)index, (void*)b_index, length);
+// 	//is at 100 ^ 1000 = 1100 = 12. so then check bits 12 through 12 + 4 to be free.
+// 	for (i = b_index; i < (b_index + length); i++){
+// 		bit = (int)(*bitfield & (1 << i));
+// 		if (bit > 0){
+// 			free = FALSE;
+// 		}
+// 	}
 }
 
 void print_headers(bool p){
 	if (p == FALSE){return;}
 	int i;
-	headers* h = (headers *)HEAD_PTRS;
+	headers* h = (headers *)HEAD_PTRS(my_page);
 	freeEntry* entry = NULL;
-	for(i = 0; i < 6; i++){
+	for(i = 0; i < 5; i++){
 		entry = h->arr[i];
 		while (entry != NULL){
 			printf("Entry in level %d at address %p\n", i, (void*)entry);
 			entry = entry->next;
 		}
 	}
+	kma_page_t* current = my_page;
+	while(current!=NULL){
+		printf("Page: %p\n",current);
+		current = h->next;
+		h = (headers*)HEAD_PTRS(current);
+	}
+	return;
 }
 // http://www.geeksforgeeks.org/write-a-c-program-to-calculate-powxn/
 float power(float x, int y)
