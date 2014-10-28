@@ -67,7 +67,7 @@ static bool coalesce();
 static void printResources(char *);
 int mspillover = 0;
 int fspillover = 0;
-int prcount = 0;
+int prcount = -999999990;
 
 /************External Declaration*****************************************/
 
@@ -75,13 +75,14 @@ int prcount = 0;
 
 
 void* kma_malloc(kma_size_t malloc_size){
-	if(prcount>=44800){printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__);}
+	if(prcount>=44800){printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__);fflush(stdout);}
 	if (g_resource_map == NULL)
 	{
+		if(prcount>=44800){printf("empty rmap Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);}
 		// if the request is larger than the size of a page we can't allocate it
 		if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 		kma_page_t* first = get_page();
-		if(first->ptr != BASEADDR(first->ptr)){first->ptr = BASEADDR(first->id);}
+		if(first->ptr != BASEADDR(first->ptr)){printf("Bad ptr from get_page line:%d  ptr:%p\tfixed:%p\tba:%p\n",__LINE__,first->ptr,PAGEBASE(first->id),BASEADDR(first->ptr)); fflush(stdout); first->ptr = BASEADDR(first->id);}
 		if(firstbase==0){firstbase = (unsigned int)first->ptr;}
 		else if(first->ptr !=PAGEBASE(first->id)){first->ptr =PAGEBASE(first->id);}
 		// printf("firstbase:%p\n",(void*)firstbase);
@@ -159,8 +160,9 @@ void* kma_malloc(kma_size_t malloc_size){
 			if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 			kma_page_t* newpage = get_page();
 			//need to correct the ptr, in case it returned a bad ptr.
-			if(newpage->ptr != PAGEBASE(newpage->id)){ newpage->ptr = PAGEBASE(newpage->id); }
-			void* ptr = (void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*));
+			//printf("Bad ptr from get_page line:%d  ptr:%p\tfixed:%p\tba:%p\n",__LINE__,newpage->ptr,PAGEBASE(newpage->id),BASEADDR(newpage->ptr)); fflush(stdout); 
+			if(newpage->ptr != BASEADDR(newpage->ptr)){ newpage->ptr = BASEADDR(newpage->ptr); }
+			void* ptr = newpage->ptr + sizeof(kma_page_t*);
 			//print("original ptr: %p\tadj pointer: %p\tresourceEntry: %p\n",newpage->ptr,ptr,(void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*) + malloc_size));
 			newpage->ptr = (resourceEntry*)((unsigned int)newpage->ptr + sizeof(kma_page_t*) + malloc_size);
 			//print("newpage->ptr: %p newpage:%p newpagebase:%p  newpage->ptrbase:%p\n",  newpage->ptr, newpage,BASEADDR(newpage), BASEADDR(newpage->ptr));
@@ -202,6 +204,7 @@ void* kma_malloc(kma_size_t malloc_size){
 				}
 			}
 			//printResources("No hole fit");
+			if(prcount>=44800){printf("No fit  Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);}
 			return ptr;
 		}
 	}
@@ -259,6 +262,7 @@ void* kma_malloc(kma_size_t malloc_size){
 		}
 		
 		char str[80];
+		if(prcount>44800){printf("Found a hole at %p\n", ptr); fflush(stdout);}
 		sprintf(str, "Found a hole at %p", ptr);
 		//printResources(str);
 		return ptr;
@@ -324,7 +328,7 @@ kma_free(void* ptr, kma_size_t size)
 {
 	while(coalesce()){};
 	if(size<12){ fspillover+=12-size; size = 12;}
-	if(prcount>=44800){printf("Free: ptr:%p  size:%d   line:%d\n",ptr,(int)size,__LINE__);}
+	if(prcount>=44800){printf("Free: ptr:%p  size:%d   line:%d\n",ptr,(int)size,__LINE__); fflush(stdout);}
 	resourceEntry* newentry = ptr;
 	newentry->base = (int)ptr;
 	newentry->size = size;
@@ -339,7 +343,8 @@ kma_free(void* ptr, kma_size_t size)
 			//is this a kma_page_t*?
 			if(((kma_page_t*)entry)->size==PAGESIZE){
 				//is this the matching page?
-				if(thepage==PAGEBASE(((kma_page_t*)entry)->id)){
+				//if(thepage==PAGEBASE(((kma_page_t*)entry)->id)){
+				if(thepage==BASEADDR(((kma_page_t*)entry)->ptr)){
 					//we found the right page, so link appropriately from here
 					foundpage = TRUE;
 				}
@@ -403,7 +408,8 @@ static void printResources(char* mystr){
 	while(entry != NULL){
 		if(((kma_page_t*)entry)->size==PAGESIZE){
 			limit = BASEADDR(((kma_page_t*)entry)->ptr) +PAGESIZE;
-			common = PAGEBASE(((kma_page_t*)entry)->id);
+			//common = PAGEBASE(((kma_page_t*)entry)->id);
+			common = BASEADDR(((kma_page_t*)entry)->ptr);
 			printf("PAGE: %d\tSIZE: %d\tBASE: %p\tPAGEBASE: %p\tID: %d\tMESSAGE: %s\n", pagecounter, ((kma_page_t*)entry)->size, ((kma_page_t*)entry)->ptr,PAGEBASE(((kma_page_t*)entry)->id),((kma_page_t*)entry)->id, mystr);
 			pagecounter++;
 			entry=((kma_page_t*)entry)->ptr;
@@ -412,7 +418,7 @@ static void printResources(char* mystr){
 			printf("NUMBER: %d\tSIZE: %d\tBASE: %p\tBASEADDR: %p\tBASE+SIZE:%p\tNEXT: %p\tMESSAGE: %s\n", counter, entry->size, (void*)entry->base,BASEADDR(entry->base),(void*)(entry->base+entry->size),entry->next, mystr);
 			if (entry->size <= 0){quit = TRUE;}
 			if(BASEADDR(entry->base)!=common){
-				printf("adjacent entries have different baseaddr\n");
+				printf("adjacent entries: %p\t%p have different baseaddr: %p\n",(void*)entry->base,common,BASEADDR(entry->base));
 				exit(EXIT_FAILURE);
 			}
 			if((entry->base+entry->size)>limit){

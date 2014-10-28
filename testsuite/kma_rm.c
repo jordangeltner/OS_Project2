@@ -75,9 +75,10 @@ int prcount = 0;
 
 
 void* kma_malloc(kma_size_t malloc_size){
-	if(prcount>=44800){printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__);}
+	if(prcount>=44800){printf("Malloc:%d line:%d\n",(int)malloc_size,__LINE__);fflush(stdout);}
 	if (g_resource_map == NULL)
 	{
+		if(prcount>=44800){printf("empty rmap Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);}
 		// if the request is larger than the size of a page we can't allocate it
 		if (malloc_size >= (PAGESIZE - sizeof(kma_page_t*))){return NULL;}
 		kma_page_t* first = get_page();
@@ -134,7 +135,7 @@ void* kma_malloc(kma_size_t malloc_size){
 			entry=entry->next;
 		}
 		else{
-			//print("hard else  size:%d\n",entry->size);
+			printf("hard else  size:%d\n",entry->size);
 			exit(EXIT_FAILURE);
 			entry = NULL;
 		}
@@ -160,7 +161,7 @@ void* kma_malloc(kma_size_t malloc_size){
 			kma_page_t* newpage = get_page();
 			//need to correct the ptr, in case it returned a bad ptr.
 			if(newpage->ptr != PAGEBASE(newpage->id)){ newpage->ptr = PAGEBASE(newpage->id); }
-			void* ptr = (void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*));
+			void* ptr = newpage->ptr + sizeof(kma_page_t*);
 			//print("original ptr: %p\tadj pointer: %p\tresourceEntry: %p\n",newpage->ptr,ptr,(void*)((unsigned int)newpage->ptr + sizeof(kma_page_t*) + malloc_size));
 			newpage->ptr = (resourceEntry*)((unsigned int)newpage->ptr + sizeof(kma_page_t*) + malloc_size);
 			//print("newpage->ptr: %p newpage:%p newpagebase:%p  newpage->ptrbase:%p\n",  newpage->ptr, newpage,BASEADDR(newpage), BASEADDR(newpage->ptr));
@@ -202,6 +203,7 @@ void* kma_malloc(kma_size_t malloc_size){
 				}
 			}
 			//printResources("No hole fit");
+			if(prcount>=44800){printf("No fit  Malloc:%d line:%d\n",(int)malloc_size,__LINE__); fflush(stdout);}
 			return ptr;
 		}
 	}
@@ -259,6 +261,7 @@ void* kma_malloc(kma_size_t malloc_size){
 		}
 		
 		char str[80];
+		if(prcount>44800){printf("Found a hole at %p\n", ptr); fflush(stdout);}
 		sprintf(str, "Found a hole at %p", ptr);
 		//printResources(str);
 		return ptr;
@@ -294,8 +297,9 @@ static bool coalesce(){
 				}
 			}
 			current = current->next;
+			if(prcount>44800){printf("About to free a Page!!!!!\n"); fflush(stdout);}
 			free_page(recentHead);
-			//print("Freed a Page!!!!!\n");
+			if(prcount>44800){printf("Freed a Page!!!!!\n"); fflush(stdout);}
 		}
 		//is this block directly adjacent to the next block? and on the same page?
 		//printf("Coalesce Attempt: current: %d\tnext: %d\tcurrentPage: %d\tnextPage: %d\n", current->base, current->next->base, (int)BASEADDR(current), (int)BASEADDR(current->next));
@@ -323,7 +327,7 @@ kma_free(void* ptr, kma_size_t size)
 {
 	while(coalesce()){};
 	if(size<12){ fspillover+=12-size; size = 12;}
-	if(prcount>=44800){printf("Free: ptr:%p  size:%d   line:%d\n",ptr,(int)size,__LINE__);}
+	if(prcount>=44800){printf("Free: ptr:%p  size:%d   line:%d\n",ptr,(int)size,__LINE__); fflush(stdout);}
 	resourceEntry* newentry = ptr;
 	newentry->base = (int)ptr;
 	newentry->size = size;
