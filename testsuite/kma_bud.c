@@ -53,9 +53,10 @@
  */
 #define MAX_ORDER 5
 #define BLOCKSIZE 255
-#define HEAD_PTRS (void*)(my_page->ptr + sizeof(kma_page_t*) + 4)
+#define HEAD_PTRS (void*)(my_page->ptr + sizeof(kma_page_t*) + sizeof(int*))
 #define BITFIELD (int*)(my_page->ptr + sizeof(kma_page_t*))
 #define LINE printf("LINE: %d\n", __LINE__)
+#define DEBUG 0
 
 typedef struct freeEntry {
 	struct freeEntry * next;
@@ -63,12 +64,7 @@ typedef struct freeEntry {
 } freeEntry;
 
 typedef struct headers {
-	struct freeEntry * zero;
-	struct freeEntry * one;
-	struct freeEntry * two;
-	struct freeEntry * three;
-	struct freeEntry * four;
-	struct freeEntry * five;
+	struct freeEntry* arr[6];
 } headers;
 /************Global Variables*********************************************/
 static kma_page_t* my_page = NULL;
@@ -80,8 +76,7 @@ int map_num(int);
 void mark_allocated(freeEntry *, int);
 void mark_free(freeEntry *, int);
 void find_and_combine(freeEntry *, int);
-freeEntry* get_entry_by_level(headers *, int);
-void set_entry_by_level(headers *, int, freeEntry*);
+void print_headers(bool);
 /************External Declaration*****************************************/
 
 /**************Implementation***********************************************/
@@ -118,18 +113,18 @@ void* kma_malloc(kma_size_t malloc_size){
 
 		//make an array of head pointers (takes 24 bytes)
 		headers * h = (headers*)HEAD_PTRS;
-		h->zero = NULL;
-		h->one = NULL;
-		h->two = NULL;
-		h->three = NULL;
-		h->four = NULL;
-		h->five = (freeEntry*)((int)h + 24);
-		h->five->next = NULL;
-		h->five->previous = NULL;
+		freeEntry* five = (freeEntry*)((int)h + 24);
+		five->next = NULL;
+		five->previous = NULL;
+		int i;
+		for (i = 0; i < 6; i++){
+			h->arr[i] = NULL;
+		}
+		h->arr[5] = five;
 	}
 	//get the desired order
 	int order = get_order(malloc_size);
-	printf("Order: %d\n", order);
+	if (DEBUG > 1){printf("Order: %d\n", order);}
 	if (order == -1){
 		return NULL;
 	}
@@ -156,15 +151,16 @@ void * get_matching_block(int order){
 	}
 	// its offset by the kma pointer and the bitfield
 	headers* h = (headers *)HEAD_PTRS;
-	freeEntry* entry = get_entry_by_level(h, order);
+	freeEntry* entry = h->arr[order];
 
 	//if we find an appropriate block, update head_ptrs, bitmap, then return
 	if (entry != NULL){
-		printf("Got an entry at %p on %p\n", (void *)entry, BASEADDR(entry));
+		printf("Found entry %p at the desired level: %d\n", (void*)entry, order);
 		mark_allocated(entry, order);
 	}
 	//didn’t find an entry so we have to split until we find one of the right order
 	else{
+		if (DEBUG >= 1){printf("Didn't find an entry at level %d, searching higher levels to split.\n", order);}
 		entry = split_and_get(order);
 	}
 	return (void*)entry;
@@ -176,39 +172,36 @@ void * get_matching_block(int order){
 freeEntry * split_and_get(int order){
 	headers* h = (headers*)HEAD_PTRS;
 	int level = order + 1;
-	freeEntry* entry = get_entry_by_level(h, level);
+	freeEntry* entry = h->arr[level];
 	while (level <= MAX_ORDER && level >= 0){
-		entry = get_entry_by_level(h, level);
-		printf("Checking %d\n", level);
+		entry = h->arr[level];
+		print_headers(FALSE);
 		//found one of a higher order, split it and return one
 		//we already know there isn’t one at a lower level
 		if (entry != NULL){
 			if (level == order){
-				printf("Found an entry at the desired level: %d\n", order);
+				printf("Found entry %p at the desired level: %d\n", (void*)entry, order);
 				mark_allocated(entry, order);
 				return entry;
 			}
-			printf("SPLITTING: %d\n", level);
-			freeEntry* b = (freeEntry*)((int)entry + (int)pow(2, level - 1));
-			printf("Weird calculation worked\n");
+			if (DEBUG > 0){printf("SPLITTING: %d\n", level);}
+			//make the current entry down a level
+			h->arr[level] = entry->next;
 			if (entry->next != NULL){
-				LINE;
-				set_entry_by_level(h, level, entry->next);
 				entry->next->previous = NULL;
 			}
-			printf("Set entry by level\n");
-			
-			//link in the two entries into the lower level
-			entry->next = b;
-			entry->previous = NULL;
-			b->previous = entry;
-			b->next = NULL;
-			set_entry_by_level(h, level-1, entry);
+			h->arr[level-1] = entry;
+			if (DEBUG > 0){printf("Set an entry in level %d to the addr at %p\n", (level-1), (void*)entry);}
+			//make a buddy that starts at half its original order's addr
+			freeEntry* buddy = (freeEntry*)((int)entry + (int)(BLOCKSIZE*pow(2, level-1)));
+			//link the buddy into level-1
+			entry->next = buddy;
+			buddy->previous = entry;
+			buddy->next = NULL;
+			if (DEBUG > 0){printf("Set an entry in level %d to the addr at %p\n", (level-1), (void*)buddy);}
 			level--;
-			printf("linked entries to lower level\n");
 		}
 		else{
-			printf("Leaving %d\n", level);
 			level++;
 		}
 	}
@@ -219,10 +212,10 @@ freeEntry * split_and_get(int order){
 //([0, 1, 2 … 5], [255, 510, 1020 … 8160])
 int map_num(int num){
 	if (num < 6 && num >= 0){
-		return 255 * pow(2, num);
+		return BLOCKSIZE * pow(2, num);
 	}
-	else if ((num % 255) < 6 && (num % 266) >= 0){
-		return num % 266;
+	else if ((num % BLOCKSIZE) < 6 && (num % BLOCKSIZE) >= 0){
+		return num % BLOCKSIZE;
 	}
 	else{
 		printf("Got a bad argument to map_num: %d\n", num);
@@ -235,7 +228,7 @@ int map_num(int num){
 void mark_allocated(freeEntry * entry, int order){
 	headers * h = (headers*)HEAD_PTRS;
 	//entry’s next becomes the head_ptr of the list
-	set_entry_by_level(h, order, entry->next);
+	h->arr[order] = entry->next;
 	if (entry->next != NULL){
 		entry->next->previous = NULL;
 	}
@@ -247,7 +240,7 @@ void mark_allocated(freeEntry * entry, int order){
 
 	//entry’s addr - base addr - 32 should give the bitfield-relative addressing (% 255)
 	relative = (int)entry - (int)BASEADDR(entry) - 32;
-	index = relative / 255;
+	index = relative / BLOCKSIZE;
 	for (i = 0; i < entry_size; i++){
 		//update the bit at each position the entry covers (based on order)
 		*bit_field |= 1 << (index+i);
@@ -259,7 +252,7 @@ void mark_allocated(freeEntry * entry, int order){
 void mark_free(freeEntry* entry, int order){
 	int * bitfield = BITFIELD;
 	headers * h = (headers*)HEAD_PTRS;
-	freeEntry * current = get_entry_by_level(h, order);
+	freeEntry * current = h->arr[order];
 	if (current == NULL){
 		entry->next = NULL;
 		entry->previous = NULL;
@@ -268,13 +261,13 @@ void mark_free(freeEntry* entry, int order){
 		entry->next = current;
 		current->previous = entry;
 	}
-	set_entry_by_level(h, order, entry);
+	h->arr[order] = entry;
 	int entry_size = pow(2,order);
 	int i, relative, index;
 
 	//entry’s addr - base addr - 32 should give the bitfield-relative addressing (% 255)
 	relative = (int)entry - (int)BASEADDR(entry) - 32;
-	index = relative / 255;
+	index = relative / BLOCKSIZE;
 	for (i = 0; i < entry_size; i++){
 		//update the bit at each position the entry covers (based on order)
 		*bitfield &= 0 << (index+i);
@@ -286,14 +279,17 @@ void kma_free(void* ptr, kma_size_t size){
 	printf("Freeing %d\n", size);
 	// have to free the entire block, not a fraction
 	int* bitfield = BITFIELD;
-	if (size < 255){
-		size = 255;
+	if (size < BLOCKSIZE){
+		size = BLOCKSIZE;
 	}
+	printf("Got a bitfield at %p\n", (void*) bitfield);
 	freeEntry * entry = (freeEntry*)ptr;
 	int order = get_order(size);
 	
+	print_headers(TRUE);
 	//update bitfield and linked lists
 	mark_free(entry, order);
+	printf("Marked entry at %p as free\n", (void*) entry);
 
 	//see if the buddy of entry is free. if so, combine them
 	//if combined, look for the new combo’s boddy
@@ -308,107 +304,79 @@ void kma_free(void* ptr, kma_size_t size){
 //searches for the buddy of entry and combines them if found
 //if combines, then it looks for the new combo’s buddy
 void find_and_combine(freeEntry *entry, int order){
+	if (order == MAX_ORDER){return;}
 	int * bitfield = BITFIELD;
 	headers* h = (headers*)HEAD_PTRS;
-	int size = pow(2, order);
+	int length = pow(2, order);
 	int relative, index, i;
 	bool free = TRUE;
 	
-	relative = (int)entry - (int)BASEADDR(entry) - 32;
-	index = relative / 255;
-	int b_index = index & size;
-	for (i = 0; i < size; i++){
-		//if any spot in buddy is not free, we can’t combine
+	//look in bitfield for buddy. if its allocated, return
+	//buddy should be at base XOR length. a block of length 4 at addr 8's buddy
+	relative = (int)entry - (int)BASEADDR(entry) - sizeof(kma_page_t*) - sizeof(int*) - sizeof(headers);
+	index = relative / BLOCKSIZE;
+	int b_index = index ^ length;
+	printf("ORDER: %d\tentry index at %p, buddy index at %p. length: %d\n", order, (void*)index, (void*)b_index, length);
+	//is at 100 ^ 1000 = 1100 = 12. so then check bits 12 through 12 + 4 to be free.
+	for (i = 0; i < length; i++){
 		if((*bitfield & (1 << (b_index+i))) > 0){
 			free = FALSE;
 		}
 	}
+	//if all <length> bits are free, the buddy is free
+	//if its free, combine them
 	if (free){
-		//relink their old neighbor’s pointers
-		freeEntry* buddy = (freeEntry*)((int)entry & (size*255));
+		freeEntry* buddy = (freeEntry*)((int)entry ^ (length*BLOCKSIZE));
 		//save the entry with the lower addr, so swap addrs
 		if ((int)buddy < (int)entry){
 			int budint = (int)buddy;
-			int entint = (int)entint;
+			int entint = (int)entry;
 			entint = entint ^ budint;
 			budint = entint ^ budint;
 			entint = entint ^ budint;
 			buddy = (freeEntry*)budint;
 			entry = (freeEntry*)entint;
 		}
-
+		//relink their old neighbor’s pointers
 		if (buddy->next && buddy->previous){
 			buddy->next->previous = buddy->previous;
 			buddy->previous->next = buddy->next->previous;
-	}
-	else if (buddy->previous){
-		buddy->previous->next = NULL;
-	}
-	if (get_entry_by_level(h, order) == buddy){
-		set_entry_by_level(h, order, buddy->next);
-	}
+		}
+		else if (buddy->previous){
+			buddy->previous->next = NULL;
+		}
+		if (h->arr[order] == buddy){
+			h->arr[order] = buddy->next;
+		}
+		else if (h->arr[order] == entry){
+			h->arr[order] = entry->next;
+		}
 		//link them into the higher order of the head_ptrs
-		freeEntry* higher = get_entry_by_level(h, order+1);
+		freeEntry* higher = h->arr[order+1];
 		if (higher != NULL){
 			entry->next = higher;
 			higher->previous = entry;
 		}
-		set_entry_by_level(h, order+1, entry);;
+		//add it to the head of the list for that size
+		h->arr[order+1] = entry;
 		//try to join the combined entry to its new buddy
 		find_and_combine(entry, order+1);
 	}
 	return;
 }
 
-freeEntry* get_entry_by_level(headers * h, int order){
+void print_headers(bool p){
+	if (p == FALSE){return;}
+	int i;
+	headers* h = (headers *)HEAD_PTRS;
 	freeEntry* entry = NULL;
-	switch (order){
-		case 0:
-		entry = h->zero;
-		break;
-		case 1:
-		entry = h->one;
-		break;
-		case 2:
-		entry = h->two;
-		break;
-		case 3:
-		entry = h->three;
-		break;
-		case 4:
-		entry = h->four;
-		break;
-		case 5:
-		entry = h->five;
-		break;
+	for(i = 0; i < 6; i++){
+		entry = h->arr[i];
+		while (entry != NULL){
+			printf("Entry in level %d at address %p\n", i, (void*)entry);
+			entry = entry->next;
+		}
 	}
-	return entry;
 }
-
-void set_entry_by_level(headers * h, int order, freeEntry * entry){
-	printf("Setting entry %d with memory at %p\n", order, (void*)entry);
-	switch (order){
-		case 0:
-		h->zero = entry;
-		break;
-		case 1:
-		h->one = entry;
-		break;
-		case 2:
-		h->two = entry;
-		break;
-		case 3:
-		h->three = entry;
-		break;
-		case 4:
-		h->four = entry;
-		break;
-		case 5:
-		h->five = entry;
-		break;
-	}
-	return;
-}
-
 
 #endif // KMA_BUD
