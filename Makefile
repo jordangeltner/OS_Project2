@@ -91,7 +91,7 @@ kma_mck2: ${SRCS}
 	${CC} ${CFLAGS} -DKMA_MCK2 -o $@ ${SRCS}
 
 kma_bud: ${SRCS}
-	${CC} ${CFLAGS} -DKMA_BUD -o $@ ${SRCS}
+	${CC} ${CFLAGS} -DKMA_BUD -o $@ ${SRCS} -lm
 
 kma_lzbud: ${SRCS}
 	${CC} ${CFLAGS} -DKMA_LZBUD -o $@ ${SRCS}
