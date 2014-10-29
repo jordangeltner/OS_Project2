@@ -408,8 +408,11 @@ void kma_free(void* ptr, kma_size_t size){
 void our_free_page(void* ptr){
 	LINE;
 	if(print_headers(TRUE)==1){
+		headers* h = (headers*)HEAD_PTRS(my_page); 
 		kma_page_t* page = my_page;
 		my_page = NULL;
+		int k;
+		for(k=0;k<MAX_ORDER;k++){ h->arr[k] = NULL;}
 		LINE;
 		printf("%p   %p\n",page,page->ptr);
 		fflush(stdout);
