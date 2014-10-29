@@ -76,7 +76,7 @@ int map_num(int);
 void mark_allocated(freeEntry *, int);
 void mark_free(freeEntry *, int);
 void find_and_combine(freeEntry *, int);
-void print_headers(bool);
+int print_headers(bool);
 float power(float, int);
 void our_free_page(void*);
 kma_page_t* create_page();
@@ -181,6 +181,7 @@ int get_order(int malloc_size){
 //returns NULL if no larger-order blocks can be split
 void * get_matching_block(int order){
 	LINE;
+	print_headers(TRUE);
 	if (order > MAX_ORDER || order < 0){
 		return NULL;
 	}
@@ -193,8 +194,8 @@ void * get_matching_block(int order){
 		headers* iter = h;
 		while(current!=NULL){
 			prev = current;
-			current = (kma_page_t*)iter->next;
 			iter = (headers *)HEAD_PTRS(current);
+			current = (kma_page_t*)iter->next;
 		}
 		//there's no existing my_page
 		if(prev==NULL){
@@ -228,10 +229,9 @@ void * get_matching_block(int order){
 //split if found and set level to order and continue searching
 //if match found and order == level, return
 freeEntry * split_and_get(int order){
-	LINE;
 	headers* h = (headers*)HEAD_PTRS(my_page);
 	int level = order + 1;
-	freeEntry* entry = h->arr[level];
+	freeEntry* entry = h->arr[order];
 	while (level < MAX_ORDER && level >= 0){
 		entry = h->arr[level];
 		print_headers(FALSE);
@@ -266,16 +266,19 @@ freeEntry * split_and_get(int order){
 			level++;
 		}
 	}
+	if(level==5 && entry!=NULL){
+		h->arr[4]=entry->next;
+		return (void*)entry;
+	}
 	//TODO: REQUEST NEW PAGE AND RETURN proper address of allocated block
 	kma_page_t* prev = NULL;
 	kma_page_t* current = my_page;
 	headers* iter = h;
 	while(current!=NULL){
 		prev = current;
-		LINE;
 		iter = (headers *)HEAD_PTRS(current);
-		LINE;
 		current = (kma_page_t*)iter->next;
+		//print_headers(TRUE);
 	}
 	//there's no existing my_page
 	if(prev==NULL){
@@ -283,6 +286,8 @@ freeEntry * split_and_get(int order){
 		printf("IMPOSSIBLE\n");
 		exit(EXIT_FAILURE);
 	}
+	LINE;
+	printf("order:%d\n",order); fflush(stdout);
 	//prev must be the last page
 	iter = (headers *)HEAD_PTRS(prev);
 	iter->next = (void*)create_page();
@@ -402,24 +407,40 @@ void kma_free(void* ptr, kma_size_t size){
 //Frees a page, properly linking up the existing headers
 void our_free_page(void* ptr){
 	LINE;
+	if(print_headers(TRUE)==1){
+		kma_page_t* page = my_page;
+		my_page = NULL;
+		LINE;
+		printf("%p   %p\n",page,page->ptr);
+		fflush(stdout);
+		free_page(page); 
+		return;
+	}
+	LINE;
 	headers* h = (headers*)((int)ptr-sizeof(headers));
+	printf("my_page: %p\th->next: %p\n",my_page,h->next);
 	//trying to free the entrance to all our stuff
 	if(my_page->ptr==BASEADDR(ptr)){
 		kma_page_t* page = my_page;
 		LINE;
 		my_page = (kma_page_t*)h->next;
 		LINE;
-		if(my_page==NULL){free_page(page); return;}
+		if(my_page==NULL){LINE; free_page(page); return;}
 		headers* dest = (headers*)HEAD_PTRS(my_page);
 		//MAKE SURE THIS IS WORKING
 		LINE;
-		*dest = *h;
+		//*dest = *h;
+		int j;
+		for(j = 0; j<MAX_ORDER;j++){
+			dest->arr[j] = h->arr[j];
+		}
 		LINE;
-		//print_headers(TRUE);
+		print_headers(TRUE);
 		free_page(page);
 		//print_headers(TRUE);
 		return;
 	}
+	print_headers(TRUE);
 	//trying to free a page that is not the entrance
 	headers* iter = h;
 	headers* prev = NULL;
@@ -443,6 +464,8 @@ void our_free_page(void* ptr){
 	kma_page_t* page = (kma_page_t*)prev->next;
 	LINE;
 	prev->next = iter->next;
+	LINE;
+	print_headers(TRUE);
 	LINE;
 	free_page(page);
 	return;
@@ -493,8 +516,11 @@ void find_and_combine(freeEntry *entry, int order){
 	}
 	//buddy found
 	else{
-		LINE;
 		//replace header
+		LINE;
+		printf("my_page->ptr: %p\n",my_page->ptr);
+		print_headers(TRUE);
+		LINE;
 		h->arr[order] = entry->next;
 		//MIGHT NEED TO FIX PREVIOUS
 		//buddy is the new header, so replace it again
@@ -511,6 +537,10 @@ void find_and_combine(freeEntry *entry, int order){
 				((freeEntry*)buddy)->next->previous = prev;
 			}
 		}
+		LINE;
+		printf("my_page->ptr: %p\n",my_page->ptr);
+		print_headers(TRUE);
+		LINE;
 		//are we joining buddies into a wholly free page?
 		if((order+1)>=MAX_ORDER){
 			LINE;
@@ -520,6 +550,8 @@ void find_and_combine(freeEntry *entry, int order){
 			else{
 				our_free_page((void*)entry);
 			}
+			LINE;
+			print_headers(TRUE);
 			return;
 		}
 		//not a wholly free page, so insert leftmost entry into next level
@@ -575,8 +607,8 @@ void find_and_combine(freeEntry *entry, int order){
 // 	}
 }
 
-void print_headers(bool p){
-	if (p == FALSE){return;}
+int print_headers(bool p){
+	if (p == FALSE){return 0;}
 	int i;
 	headers* h = (headers *)HEAD_PTRS(my_page);
 	freeEntry* entry = NULL;
@@ -594,13 +626,18 @@ void print_headers(bool p){
 		}
 		//if(count==12){ LINE; exit(EXIT_FAILURE); }
 	}
+	kma_page_t* prev = NULL;
 	kma_page_t* current = my_page;
+	int onepageleft=0;
 	while(current!=NULL){
-		printf("Page: %p\n",current);
+		onepageleft++;
+		printf("Page: %p\tPtr: %p\n",current,current->ptr);
 		h = (headers*)HEAD_PTRS(current);
+		prev = current;
 		current = (kma_page_t*)h->next;
+		if(prev==current){ LINE; exit(EXIT_FAILURE);}
 	}
-	return;
+	return onepageleft;
 }
 // http://www.geeksforgeeks.org/write-a-c-program-to-calculate-powxn/
 float power(float x, int y)
