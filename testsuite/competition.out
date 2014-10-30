@@ -1,1 +1,4 @@
-bash: ./kma_competition: No such file or directory
+./kma_competition: Running in competition mode
+Page Requested/Freed/In Use:  7200/ 7200/    0
+Competition average ratio: 0.288041
+Test: PASS
