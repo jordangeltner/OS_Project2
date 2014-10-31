@@ -1,6 +1,16 @@
 Jordan Geltner Billy Gross (jmg920+wgr499) KMA Project 
 
 Comparison report between Resource Map and Buddy Allocation:
+
+
+	The buddy allocator seems to be faster on every trace than the resource map. This happens because the Resource Map gets extremely fragmented and has to allocate more pages than the buddy allocator. Furthermore, the buddy allocator coalesces its memory fairly quickly when it isn't needed. 
+	The buddy system does take longer for freeing since it oftentimes needs to coalesce those spaces, whereas the resource map can just add it to the list. The buddy system is quicker when allocating, since it only needs to check one pointer to find a free block of the right size. The resource map has to search through its entire list in the 
+worst case, presenting an O(n) time scenario when n entries are in the list.
+	Included in the directory are plots of the output and waste of our buddy and resource map implementations. In the waste plots, you can see that the buddy system wastes on average, double the amount of space that resource map wastes. This is to be expected due to the large round off errors in the buddy system. In the output plots you can also see that the buddy system is allocating more space than the resource map does to accommodate the same amount of mallocs. The amount over allocated by the buddy system is about 10-15% worse than the resource map.
+	In the resource map implementation, we chose first fit, because it was the fastest implementation from the book.
+
+Timing information:
+
 Resource Map:
 
 TRACE 1
