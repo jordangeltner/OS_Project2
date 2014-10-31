@@ -1,0 +1,57 @@
+Jordan Geltner Billy Gross (jmg920+wgr499) KMA Project 
+
+Comparison report between Resource Map and Buddy Allocation:
+Resource Map:
+
+TRACE 1
+Page Requested/Freed/In Use:     2/    2/    0
+Test: PASS
+real 0.16	user 0.00	sys 0.08
+
+TRACE 2
+Page Requested/Freed/In Use:    35/   35/    0
+Test: PASS
+real 0.20	user 0.04	sys 0.05
+
+TRACE 3
+Page Requested/Freed/In Use:   841/  841/    0
+Test: PASS
+real 4.74	user 2.32	sys 0.17
+
+TRACE 4
+Page Requested/Freed/In Use:  1031/ 1031/    0
+Test: PASS
+real 7.36	user 3.62	sys 0.38
+
+TRACE 5
+Page Requested/Freed/In Use:  7200/ 7200/    0
+Test: PASS
+real 71.13	user 38.68	sys 0.65
+
+
+Buddy Allocation:
+
+TRACE 1
+Page Requested/Freed/In Use:     3/    3/    0
+Test: PASS
+real 0.12	user 0.01	sys 0.07
+
+TRACE 2
+Page Requested/Freed/In Use:    46/   46/    0
+Test: PASS
+real 0.17	user 0.02	sys 0.06
+
+TRACE 3
+Page Requested/Freed/In Use:  1407/ 1407/    0
+Test: PASS
+real 1.42	user 0.55	sys 0.12
+
+TRACE 4
+Page Requested/Freed/In Use:  1236/ 1236/    0
+Test: PASS
+real 1.36	user 0.65	sys 0.20
+
+TRACE 5
+Page Requested/Freed/In Use: 10165/10165/    0
+Test: PASS
+real 13.83	user 6.81	sys 0.48

@@ -351,8 +351,8 @@ check(char* lhs, char* rhs, int size)
     {
       if (lhs[i] != rhs[i])
 	{
-	  fprintf(stderr, "memory mismatch at position %d (%3d!=%3d)\n", 
-		  i, lhs[i], rhs[i]);
+	  fprintf(stderr, "memory mismatch at position %d (%3d!=%3d): %p\n", 
+		  i, lhs[i], rhs[i], (void*)lhs);
 	  anyMismatches = 1;
 	}
     }
